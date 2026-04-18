@@ -1,8 +1,14 @@
-// TODO(Week 3): implement generic fallback detector — see src/detect/claude-code.ts for the pattern.
+// Generic fallback detector.
 //
-// Plan: last-resort catch-all that always "detects" and prints a manual MCP
-// snippet (URL + header) for the user to wire in themselves. Will be wired
-// into `install` as the final fallback when all specific detectors miss.
+// ALWAYS reports detected. The registry in `src/detect/index.ts` puts this
+// detector last; callers that use `detections.find((d) => d.detected)` will
+// only land on this one if every specific detector missed, in which case
+// the installer prints the manual MCP snippet (URL + bearer header) for the
+// user to wire in themselves.
+//
+// There is no `configTargets` — the user pastes the snippet wherever their
+// harness expects MCP server configuration. `evidence` flags that no other
+// harness matched, so this is a last-resort match rather than a confident one.
 
 import type {
   DetectionContext,
@@ -12,14 +18,14 @@ import type {
 
 export const genericDetector: HarnessDetector = {
   id: "generic",
-  label: "Generic fallback",
+  label: "Generic (manual MCP config)",
 
   async detect(_ctx: DetectionContext): Promise<DetectionResult> {
     return {
       harness: this.id,
       label: this.label,
-      detected: false,
-      reason: "TODO — implement before 0.1.0",
+      detected: true,
+      evidence: ["No specific harness matched — manual MCP snippet will be printed."],
     };
   },
 };

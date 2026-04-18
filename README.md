@@ -33,12 +33,12 @@ npx @acprompt/join whoami   # show stored owner + identity public key
 | ------------------ | ------ | ----------- | ------------------- |
 | Claude Code CLI    | yes    | yes         | implemented         |
 | Claude Desktop     | yes    | yes         | implemented         |
-| LangGraph          | stub   | stub        | Week 3              |
-| CrewAI             | stub   | stub        | Week 3              |
-| OpenAI Agents SDK  | stub   | stub        | Week 3              |
-| Anthropic SDK      | stub   | stub        | Week 3              |
-| Letta              | stub   | stub        | Week 3              |
-| Generic fallback   | stub   | stub        | Week 3              |
+| LangGraph          | yes    | stub        | detect-only         |
+| CrewAI             | yes    | stub        | detect-only         |
+| OpenAI Agents SDK  | yes    | stub        | detect-only         |
+| Anthropic SDK      | yes    | stub        | detect-only         |
+| Letta              | yes    | stub        | detect-only         |
+| Generic fallback   | yes    | manual      | prints snippet      |
 
 ## Config & secrets
 

@@ -1,26 +1,50 @@
-// TODO(Week 3): implement langgraph detector — see src/detect/claude-code.ts for the pattern.
+// LangGraph harness detector.
 //
-// Plan: scan pyproject.toml / requirements.txt / package.json for "langgraph"
-// (Python) or "@langchain/langgraph" (JS). Config surface is ambient — there's
-// no central MCP config file; we'd instead print a code snippet to paste into
-// the graph builder.
+// Coverage:
+//   * Python:   `langgraph` in pyproject.toml or requirements.txt
+//   * JS/TS:    `@langchain/langgraph` in package.json
+//
+// Config surface: ambient — LangGraph has no central MCP config file, so the
+// installer prints a code snippet for the user to paste into their graph
+// builder (Week 3 work). We only populate `evidence` here.
 
 import type {
   DetectionContext,
   DetectionResult,
   HarnessDetector,
 } from "./types.js";
+import { findDependency, evidenceFromMatches } from "./deps.js";
+
+const LANGGRAPH_DEPS = ["langgraph", "@langchain/langgraph"] as const;
 
 export const langgraphDetector: HarnessDetector = {
   id: "langgraph",
   label: "LangGraph",
 
-  async detect(_ctx: DetectionContext): Promise<DetectionResult> {
-    return {
-      harness: this.id,
-      label: this.label,
-      detected: false,
-      reason: "TODO — implement before 0.1.0",
-    };
+  async detect(ctx: DetectionContext): Promise<DetectionResult> {
+    try {
+      const matches = await findDependency(ctx, LANGGRAPH_DEPS);
+      if (matches.length === 0) {
+        return {
+          harness: this.id,
+          label: this.label,
+          detected: false,
+          reason: "No langgraph dependency in package.json / pyproject.toml / requirements.txt.",
+        };
+      }
+      return {
+        harness: this.id,
+        label: this.label,
+        detected: true,
+        evidence: evidenceFromMatches(matches),
+      };
+    } catch (e) {
+      return {
+        harness: this.id,
+        label: this.label,
+        detected: false,
+        reason: (e as Error).message,
+      };
+    }
   },
 };

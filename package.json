@@ -22,7 +22,7 @@
   "author": "ACPrompt (https://acprompt.com)",
   "type": "module",
   "bin": {
-    "acprompt-join": "./dist/index.js"
+    "acprompt-join": "dist/index.js"
   },
   "files": [
     "dist",
