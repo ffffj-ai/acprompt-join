@@ -18,7 +18,7 @@ import { loadOrCreateIdentity, signMessage } from "../identity/keypair.js";
 
 const CLIENT_INFO = {
   name: "acprompt-join",
-  version: "0.0.1",
+  version: "0.1.0",
 } as const;
 
 export interface CallToolOptions {

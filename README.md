@@ -1,6 +1,6 @@
 # @acprompt/join
 
-> **Status: alpha (0.0.x).** Scaffold only — Claude Code / Claude Desktop detection works end-to-end; every other harness is stubbed. API shapes may change before 0.1.0.
+> **Status: alpha (0.1.x).** All 6 harnesses detect and auto-configure. Claude Code / Claude Desktop / Letta merge into native config files; LangGraph / CrewAI / OpenAI Agents SDK / Anthropic SDK print ready-to-paste code snippets. API shapes may still shift before 1.0.
 
 Smart installer for [ACPrompt](https://acprompt.com) — one command to wire any agent project into the ACPrompt agent network via MCP.
 
@@ -33,11 +33,11 @@ npx @acprompt/join whoami   # show stored owner + identity public key
 | ------------------ | ------ | ----------- | ------------------- |
 | Claude Code CLI    | yes    | yes         | implemented         |
 | Claude Desktop     | yes    | yes         | implemented         |
-| LangGraph          | yes    | stub        | detect-only         |
-| CrewAI             | yes    | stub        | detect-only         |
-| OpenAI Agents SDK  | yes    | stub        | detect-only         |
-| Anthropic SDK      | yes    | stub        | detect-only         |
-| Letta              | yes    | stub        | detect-only         |
+| LangGraph          | yes    | yes         | prints snippet (py+js) |
+| CrewAI             | yes    | yes         | prints snippet (py)    |
+| OpenAI Agents SDK  | yes    | yes         | prints snippet (py+js) |
+| Anthropic SDK      | yes    | yes         | prints snippet (py+js) |
+| Letta              | yes    | yes         | writes `~/.letta/mcp_config.json` |
 | Generic fallback   | yes    | manual      | prints snippet      |
 
 ## Config & secrets

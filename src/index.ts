@@ -18,7 +18,7 @@ const program = new Command();
 program
   .name("acprompt-join")
   .description("Smart installer for ACPrompt — wire any agent harness into the ACPrompt network via MCP.")
-  .version("0.0.1");
+  .version("0.1.0");
 
 program
   .command("install")

@@ -1,20 +1,15 @@
 // `acprompt-join install` — the interactive happy path.
 //
 // Flow:
-//   1. Detect harness (pick best match, confirm with user).
+//   1. Detect harness (pick best match).
 //   2. If no token: run browser flow; else confirm reuse.
 //   3. Generate local identity if missing.
-//   4. Write MCP config for Claude Desktop (only implemented target this week)
-//      or print a shell command for Claude Code CLI.
+//   4. Dispatch to the per-harness installer (writes files or prints
+//      snippets, depending on the harness's config surface).
 //   5. Run verify().
-//
-// The config-writing paths for other harnesses are Week-3 work; we bail
-// gracefully and print the manual snippet.
 
 import pc from "picocolors";
 import { confirm } from "@inquirer/prompts";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import {
   ALL_DETECTORS,
   currentContext,
@@ -23,28 +18,8 @@ import {
 import { runBrowserAuth } from "../auth/browser-flow.js";
 import { getToken, maskToken } from "../auth/token-store.js";
 import { loadOrCreateIdentity } from "../identity/keypair.js";
+import { getInstaller, DEFAULT_MCP_URL } from "../install/index.js";
 import { runVerify } from "./verify.js";
-
-async function writeClaudeDesktopConfig(
-  configPath: string,
-  token: string
-): Promise<void> {
-  let current: Record<string, unknown> = {};
-  try {
-    const raw = await fs.readFile(configPath, "utf8");
-    current = JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    await fs.mkdir(path.dirname(configPath), { recursive: true });
-  }
-  const servers = (current.mcpServers ?? {}) as Record<string, unknown>;
-  servers["acprompt"] = {
-    type: "http",
-    url: "https://acprompt.com/api/mcp",
-    headers: { Authorization: `Bearer ${token}` },
-  };
-  current.mcpServers = servers;
-  await fs.writeFile(configPath, JSON.stringify(current, null, 2), "utf8");
-}
 
 export async function runInstall(): Promise<void> {
   console.log(pc.bold("ACPrompt installer"));
@@ -55,7 +30,10 @@ export async function runInstall(): Promise<void> {
   const best: DetectionResult | undefined = detections.find((d) => d.detected);
 
   if (!best) {
-    console.log(pc.yellow("No harness detected. Week-3 fallback will handle this."));
+    // Can't happen in practice: the generic detector always matches. We
+    // still guard against it for defensive programming — a detector
+    // throwing mid-Promise.all would otherwise leave us with nothing.
+    console.log(pc.yellow("No harness detected."));
     return;
   }
   console.log(pc.green(`Detected: ${best.label}`));
@@ -81,30 +59,48 @@ export async function runInstall(): Promise<void> {
 
   await loadOrCreateIdentity();
 
-  if (best.harness === "claude-code" && best.configTargets?.[0]) {
-    const target = best.configTargets[0];
+  if (!cfg) {
+    throw new Error("Token store unexpectedly empty after auth; retry install.");
+  }
+
+  // Confirmation gates — writes always ask; snippets don't (printing is
+  // read-only from the user's perspective).
+  const installer = getInstaller(best.harness);
+  const isFileWriter = best.harness === "claude-code" || best.harness === "letta";
+  if (isFileWriter) {
+    const target = best.configTargets?.[0] ?? "its default config path";
     const ok = await confirm({
       message: `Write ACPrompt MCP server entry into ${target}?`,
       default: true,
     });
-    if (ok && cfg) {
-      await writeClaudeDesktopConfig(target, cfg.token);
-      console.log(pc.green(`Wrote ${target}.`));
-    } else {
-      console.log(pc.dim("Skipped. Claude Code CLI users can run:"));
+    if (!ok) {
       console.log(
-        pc.dim(
-          `  claude mcp add acprompt https://acprompt.com/api/mcp --transport http -H "Authorization: Bearer <your_token>"`
+        pc.yellow(
+          "Skipped auto-write. Run `acprompt-join install` again when ready, or paste the manual snippet below:"
         )
       );
+      // Fall through to generic installer to print a manual snippet.
+      await getInstaller("generic")({
+        detection: best,
+        home: ctx.home,
+        platform: ctx.platform,
+        token: cfg.token,
+        mcpUrl: cfg.mcpUrl ?? DEFAULT_MCP_URL,
+      });
+      console.log("");
+      await runVerify();
+      return;
     }
-  } else {
-    console.log(
-      pc.yellow(
-        `Auto-config for ${best.label} is not implemented yet (TODO Week 3).`
-      )
-    );
   }
+
+  console.log("");
+  await installer({
+    detection: best,
+    home: ctx.home,
+    platform: ctx.platform,
+    token: cfg.token,
+    mcpUrl: cfg.mcpUrl ?? DEFAULT_MCP_URL,
+  });
 
   console.log("");
   await runVerify();
