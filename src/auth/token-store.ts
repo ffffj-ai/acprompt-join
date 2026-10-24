@@ -26,6 +26,13 @@ export async function getToken(): Promise<StoredConfig | null> {
     if (parsed.version !== 1 || typeof parsed.token !== "string") {
       return null;
     }
+    // Auto-heal: pre-0.1.3 installs stored the bare-domain mcpUrl, which
+    // 307-redirects to www and drops the Authorization header along the
+    // way (Node fetch + MCP SDK both strip auth on cross-host redirects).
+    // Rewrite to the canonical www form on load, no user action required.
+    if (parsed.mcpUrl === "https://acprompt.com/api/mcp") {
+      parsed.mcpUrl = "https://www.acprompt.com/api/mcp";
+    }
     return parsed;
   } catch {
     return null;
@@ -45,7 +52,7 @@ export async function setToken(
     token,
     ownerEmail: opts.ownerEmail,
     expiresAt: opts.expiresAt,
-    mcpUrl: opts.mcpUrl ?? "https://acprompt.com/api/mcp",
+    mcpUrl: opts.mcpUrl ?? "https://www.acprompt.com/api/mcp",
     savedAt: new Date().toISOString(),
   };
   await writeSecureJson(configFilePath(), payload);

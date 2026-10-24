@@ -44,7 +44,15 @@ async function scanPackageJson(
   if (!raw) return [];
   let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(raw) as Record<string, unknown>;
+    // Strip UTF-8 BOM if present. Node's fs.readFile("…", "utf8") keeps
+    // the BOM and JSON.parse throws on it; without this strip, a
+    // Windows-Notepad-saved package.json would silently report "no
+    // matches" and the user's harness would fall through to the generic
+    // installer — a detection false-negative, not a data-loss bug, but
+    // still a surprising UX downgrade. Mirror of the Round-3 BOM strip
+    // in install/shared.ts::readMergeableJson.
+    const body = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+    parsed = JSON.parse(body) as Record<string, unknown>;
   } catch {
     return [];
   }

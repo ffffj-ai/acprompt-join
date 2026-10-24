@@ -57,9 +57,22 @@ async function fileExists(p: string): Promise<boolean> {
 async function claudeCliOnPath(ctx: DetectionContext): Promise<boolean> {
   // `claude --version` is the cheapest way to confirm the CLI exists.
   // Swallow every error — if it's not installed, the CLI simply isn't there.
+  //
+  // Windows-specific: on Node 24 (CVE-2024-27980 hardening), spawning a
+  // `.cmd` file without `shell: true` is rejected unconditionally with
+  // EINVAL. The old code would catch that and report "no CLI" — a
+  // false-negative on every Windows-Node-24 install that actually HAS
+  // Claude Code CLI. We pass `shell: true` on win32 to stay compatible
+  // across Node 20/22/24. Safe against the F7-class cmd.exe argv-
+  // splitting trap because the only arg is the literal `--version`,
+  // containing no whitespace or shell metacharacters.
   const probe = ctx.platform === "win32" ? "claude.cmd" : "claude";
+  const opts =
+    ctx.platform === "win32"
+      ? { timeout: 3000, shell: true }
+      : { timeout: 3000 };
   try {
-    await execFileAsync(probe, ["--version"], { timeout: 3000 });
+    await execFileAsync(probe, ["--version"], opts);
     return true;
   } catch {
     return false;

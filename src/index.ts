@@ -12,19 +12,21 @@ import { runDetect } from "./commands/detect.js";
 import { runInstall } from "./commands/install.js";
 import { runVerify } from "./commands/verify.js";
 import { runWhoami } from "./commands/whoami.js";
+import { CLI_VERSION } from "./version.js";
 
 const program = new Command();
 
 program
   .name("acprompt-join")
   .description("Smart installer for ACPrompt — wire any agent harness into the ACPrompt network via MCP.")
-  .version("0.1.0");
+  .version(CLI_VERSION);
 
 program
   .command("install")
   .description("Interactive: detect harness, mint token, write config, verify.")
-  .action(async () => {
-    await runInstall();
+  .option("-y, --yes", "Accept all confirm prompts; required for non-TTY environments (CI, piped shells, background tasks).")
+  .action(async (options: { yes?: boolean }) => {
+    await runInstall({ yes: Boolean(options.yes) });
   });
 
 program
@@ -48,9 +50,16 @@ program
     await runWhoami();
   });
 
-// Default to `install` when no sub-command is passed.
-if (process.argv.length <= 2) {
-  runInstall().catch((err: Error) => {
+// Default to `install` when no sub-command is passed. We also handle
+// `npx @acprompt/join -y` / `--yes` as a shorthand for `install --yes`,
+// since that's the documented escape hatch for non-TTY invocations.
+const subcommands = new Set(["install", "detect", "verify", "whoami", "help", "--help", "-h", "--version", "-V"]);
+const firstArg = process.argv[2];
+const isBareInvocation = process.argv.length <= 2 || !subcommands.has(firstArg ?? "");
+if (isBareInvocation) {
+  const rest = process.argv.slice(2);
+  const yes = rest.includes("-y") || rest.includes("--yes");
+  runInstall({ yes }).catch((err: Error) => {
     console.error(err.message);
     process.exit(1);
   });

@@ -21,8 +21,37 @@ import { loadOrCreateIdentity } from "../identity/keypair.js";
 import { getInstaller, DEFAULT_MCP_URL } from "../install/index.js";
 import { runVerify } from "./verify.js";
 
-export async function runInstall(): Promise<void> {
+export interface InstallOptions {
+  /** Skip all confirm prompts, accepting defaults. Required for non-TTY. */
+  yes?: boolean;
+}
+
+/**
+ * Resolve a yes/no from the user.
+ * - If `yes` is set, accept the default without prompting.
+ * - If stdin is not a TTY and `yes` is not set, throw a clear error rather
+ *   than letting `@inquirer/prompts` silently resolve `null` and exit(1).
+ *
+ * Exported for testing — prod code calls it through `runInstall`.
+ */
+export async function askYesNo(
+  message: string,
+  defaultValue: boolean,
+  opts: InstallOptions
+): Promise<boolean> {
+  if (opts.yes) return defaultValue;
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      "Non-interactive environment detected (stdin is not a TTY). " +
+        "Re-run with --yes to accept defaults, or run in a terminal."
+    );
+  }
+  return await confirm({ message, default: defaultValue });
+}
+
+export async function runInstall(opts: InstallOptions = {}): Promise<void> {
   console.log(pc.bold("ACPrompt installer"));
+  if (opts.yes) console.log(pc.dim("  --yes: accepting all defaults"));
   console.log("");
 
   const ctx = currentContext();
@@ -43,11 +72,34 @@ export async function runInstall(): Promise<void> {
   let cfg = await getToken();
   if (cfg) {
     console.log(pc.dim(`Reusing stored token (${maskToken(cfg.token)}).`));
+    // Surface expiry proximity so the user doesn't silently ship a
+    // config with a dead token and wonder why verify 401s later.
+    if (cfg.expiresAt) {
+      const expiresMs = Date.parse(cfg.expiresAt);
+      if (!Number.isNaN(expiresMs)) {
+        const deltaMs = expiresMs - Date.now();
+        if (deltaMs <= 0) {
+          console.log(
+            pc.yellow(
+              `  ⚠ Stored token expired at ${cfg.expiresAt}. Run \`rm ~/.acprompt/config.json\` and rerun install to mint a fresh one.`
+            )
+          );
+        } else if (deltaMs < 30 * 24 * 60 * 60 * 1000) {
+          const days = Math.ceil(deltaMs / (24 * 60 * 60 * 1000));
+          console.log(
+            pc.yellow(
+              `  ⚠ Stored token expires in ${days} day${days === 1 ? "" : "s"} (${cfg.expiresAt}). Rotate soon.`
+            )
+          );
+        }
+      }
+    }
   } else {
-    const ok = await confirm({
-      message: "Open browser to approve an ACPrompt owner token?",
-      default: true,
-    });
+    const ok = await askYesNo(
+      "Open browser to approve an ACPrompt owner token?",
+      true,
+      opts
+    );
     if (!ok) {
       console.log(pc.yellow("Aborted. Rerun when ready."));
       return;
@@ -69,10 +121,11 @@ export async function runInstall(): Promise<void> {
   const isFileWriter = best.harness === "claude-code" || best.harness === "letta";
   if (isFileWriter) {
     const target = best.configTargets?.[0] ?? "its default config path";
-    const ok = await confirm({
-      message: `Write ACPrompt MCP server entry into ${target}?`,
-      default: true,
-    });
+    const ok = await askYesNo(
+      `Write ACPrompt MCP server entry into ${target}?`,
+      true,
+      opts
+    );
     if (!ok) {
       console.log(
         pc.yellow(

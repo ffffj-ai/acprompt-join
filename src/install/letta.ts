@@ -9,7 +9,7 @@
 //     "mcpServers": {
 //       "acprompt": {
 //         "transport": "streamable_http",
-//         "url": "https://acprompt.com/api/mcp",
+//         "url": "https://www.acprompt.com/api/mcp",
 //         "headers": { "Authorization": "Bearer <token>" }
 //       }
 //     }
@@ -18,24 +18,21 @@
 import pc from "picocolors";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { HarnessInstaller } from "./shared.js";
+import { readMergeableJson, type HarnessInstaller } from "./shared.js";
 import { lettaMcpConfigPath } from "../detect/letta.js";
-
-interface LettaMcpConfig {
-  mcpServers?: Record<string, unknown>;
-  [key: string]: unknown;
-}
 
 export async function writeLettaMcpConfig(
   configPath: string,
   mcpUrl: string,
   token: string
 ): Promise<void> {
-  let current: LettaMcpConfig = {};
-  try {
-    const raw = await fs.readFile(configPath, "utf8");
-    current = JSON.parse(raw) as LettaMcpConfig;
-  } catch {
+  // See comment in claude-code.ts::mergeConfig — readMergeableJson is the
+  // BOM-aware / no-clobber-on-parse-error guard. Same data-loss risk
+  // applies here: a Windows Letta user with a BOM-prefixed config would
+  // otherwise lose every other entry they had.
+  const existing = await readMergeableJson(configPath);
+  const current = existing ?? {};
+  if (!existing) {
     await fs.mkdir(path.dirname(configPath), { recursive: true });
   }
   const servers = (current.mcpServers ?? {}) as Record<string, unknown>;

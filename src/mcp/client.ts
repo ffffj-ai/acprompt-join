@@ -15,10 +15,15 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { getToken } from "../auth/token-store.js";
 import { loadOrCreateIdentity, signMessage } from "../identity/keypair.js";
+import { CLI_VERSION } from "../version.js";
 
+// CLIENT_INFO.version must match package.json.version — it's what the
+// server sees as `clientInfo.version` on MCP initialize. Hardcoding drifted
+// (0.1.0 stuck while the package shipped 0.1.7); `CLI_VERSION` reads from
+// package.json at startup so it can't get stale. See src/version.ts.
 const CLIENT_INFO = {
   name: "acprompt-join",
-  version: "0.1.0",
+  version: CLI_VERSION,
 } as const;
 
 export interface CallToolOptions {
@@ -119,11 +124,23 @@ export async function callTool(
   }
 }
 
-/** Calls acp_register. Returns whatever the server hands back (agent row). */
+/**
+ * Calls `acp_register`. Returns whatever the server hands back (agent row
+ * + freshly-minted agent credentials).
+ *
+ * The server generates the agent's Ed25519 keypair itself and returns the
+ * secret key ONCE inside `credentials.acp_secret_key` — callers are
+ * responsible for storing it. We deliberately do NOT ship a `public_key`
+ * from the installer; the installer's local keypair at
+ * `~/.acprompt/identity.json` is for a future challenge-response flow
+ * that signs envelopes per-agent, not per-installer.
+ */
 export async function register(args: {
-  name: string;
-  kind?: string;
-  public_key?: string;
+  agent_name: string;
+  capabilities?: string[];
+  intent?: string[];
+  autonomy_mode?: "auto" | "manual";
+  endpoint_url?: string;
 }): Promise<ToolCallResult> {
   return callTool("acp_register", args);
 }

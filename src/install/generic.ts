@@ -40,6 +40,6 @@ export const genericInstaller: HarnessInstaller = async (ic) => {
   );
   console.log(jsonSnippet(ic.mcpUrl, ic.token));
   console.log("");
-  console.log(pc.dim("Docs: https://acprompt.com/api/discover"));
+  console.log(pc.dim("Docs: https://www.acprompt.com/api/discover"));
   return { wrote: [], printed: ["generic-snippet"] };
 };

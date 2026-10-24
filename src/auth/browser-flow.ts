@@ -3,7 +3,7 @@
 // Flow:
 //   1. Pick a free port in [49152, 65535] and start a tiny HTTP server.
 //   2. Generate a 32-byte random state token.
-//   3. Open https://acprompt.com/cli-auth?callback=<local>&state=<state>.
+//   3. Open https://www.acprompt.com/cli-auth?callback=<local>&state=<state>.
 //      The dashboard authenticates the user (Supabase Google OAuth),
 //      mints an MCP owner token via POST /api/owner-token, then POSTs the
 //      token back to <local>/callback with the state echoed.
@@ -14,13 +14,19 @@
 //             body: { token, state, owner_email?, expires_at?, mcp_url? }
 //   Outbound: plain 200 text "You can close this tab." on success;
 //             400 on state mismatch.
+//
+// Canonical host is `www.acprompt.com` (see F4 in DOGFOOD_FINDINGS.md).
+// Bare `acprompt.com` 307-redirects to the www form; browsers follow the
+// redirect fine for this GET, but using www directly avoids the extra
+// round-trip and keeps this file consistent with every other URL constant
+// in the codebase — which all use www for the same reason.
 
 import http from "node:http";
 import crypto from "node:crypto";
 import open from "open";
 import { setToken } from "./token-store.js";
 
-const AUTH_URL = "https://acprompt.com/cli-auth";
+const AUTH_URL = "https://www.acprompt.com/cli-auth";
 const PORT_MIN = 49152;
 const PORT_MAX = 65535;
 
@@ -75,7 +81,32 @@ export function verifyCallback(
     ownerEmail: typeof b.owner_email === "string" ? b.owner_email : undefined,
     expiresAt: typeof b.expires_at === "string" ? b.expires_at : undefined,
     mcpUrl:
-      typeof b.mcp_url === "string" ? b.mcp_url : "https://acprompt.com/api/mcp",
+      typeof b.mcp_url === "string" ? b.mcp_url : "https://www.acprompt.com/api/mcp",
+  };
+}
+
+// The browser POSTs application/json from https://www.acprompt.com to
+// http://127.0.0.1:<port>/callback — a cross-origin request that triggers
+// a CORS preflight. The loopback server MUST reply 204 to OPTIONS with
+// the right Allow-* headers or the browser kills the POST before it
+// leaves the tab ("Failed to fetch"). We set the same headers on the
+// actual POST so the browser can read the response body. PNA header is
+// included so Chrome's Private Network Access (public→loopback) passes
+// too.
+const ALLOWED_ORIGINS = new Set([
+  "https://www.acprompt.com",
+  "https://acprompt.com",
+]);
+
+function corsHeadersFor(origin: string | undefined): Record<string, string> {
+  const allow = origin && ALLOWED_ORIGINS.has(origin) ? origin : "https://www.acprompt.com";
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Max-Age": "600",
+    "Access-Control-Allow-Private-Network": "true",
+    Vary: "Origin",
   };
 }
 
@@ -86,6 +117,15 @@ async function startServer(
 ): Promise<BrowserAuthResult> {
   return new Promise<BrowserAuthResult>((resolve, reject) => {
     const server = http.createServer((req, res) => {
+      const origin = req.headers.origin as string | undefined;
+      const cors = corsHeadersFor(origin);
+      for (const [k, v] of Object.entries(cors)) res.setHeader(k, v);
+
+      if (req.method === "OPTIONS") {
+        res.statusCode = 204;
+        res.end();
+        return;
+      }
       if (req.method !== "POST" || !req.url || !req.url.startsWith("/callback")) {
         res.statusCode = 404;
         res.end("Not found");

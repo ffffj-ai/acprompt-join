@@ -104,6 +104,28 @@ describe("langgraphDetector", () => {
     const r = await langgraphDetector.detect(ctx());
     expect(r.detected).toBe(false);
   });
+
+  it("detects when package.json carries a UTF-8 BOM (Windows Notepad)", async () => {
+    // Round-4 regression: Notepad-saved package.json has U+FEFF prefix.
+    // Pre-v0.1.8 scanPackageJson's JSON.parse threw on the BOM, detector
+    // reported "no matches", the user's harness slipped through to the
+    // generic installer, and they wondered why the CLI didn't recognize
+    // their LangGraph project. Not a data-loss bug but a confidence-
+    // eroding detection false-negative.
+    const body = JSON.stringify({
+      name: "fixture",
+      version: "0.0.0",
+      dependencies: { "@langchain/langgraph": "^0.2.0" },
+    });
+    await fs.writeFile(
+      path.join(tmpDir, "package.json"),
+      "\uFEFF" + body,
+      "utf8"
+    );
+    const r = await langgraphDetector.detect(ctx());
+    expect(r.detected).toBe(true);
+    expect(r.evidence?.join(" ")).toMatch(/package\.json.*langgraph/);
+  });
 });
 
 describe("crewaiDetector", () => {
