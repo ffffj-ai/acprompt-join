@@ -3,6 +3,7 @@
 import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
+import { writeFileAtomic } from "../util/atomic-write.js";
 
 export function acpromptDir(): string {
   return path.join(os.homedir(), ".acprompt");
@@ -39,7 +40,11 @@ export async function ensureDir(): Promise<string> {
 export async function writeSecureJson(filePath: string, payload: unknown): Promise<void> {
   await ensureDir();
   const body = JSON.stringify(payload, null, 2);
-  await fs.writeFile(filePath, body, { encoding: "utf8", mode: 0o600 });
+  // R33 — atomic (temp file + rename). A torn write here leaves a truncated
+  // config.json, which reads as "not logged in" and silently discards the
+  // stored agent identity. Mode is applied to the temp file, so the secret is
+  // never world-readable even for an instant.
+  await writeFileAtomic(filePath, body, { mode: 0o600 });
   if (process.platform !== "win32") {
     try {
       await fs.chmod(filePath, 0o600);

@@ -19,6 +19,7 @@ import pc from "picocolors";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { readMergeableJson, type HarnessInstaller } from "./shared.js";
+import { writeJsonAtomic } from "../util/atomic-write.js";
 import { lettaMcpConfigPath } from "../detect/letta.js";
 
 export async function writeLettaMcpConfig(
@@ -42,7 +43,8 @@ export async function writeLettaMcpConfig(
     headers: { Authorization: `Bearer ${token}` },
   };
   current.mcpServers = servers;
-  await fs.writeFile(configPath, JSON.stringify(current, null, 2), "utf8");
+  // R33 — atomic write; see src/util/atomic-write.ts.
+  await writeJsonAtomic(configPath, current);
 }
 
 export const lettaInstaller: HarnessInstaller = async (ic) => {

@@ -28,7 +28,9 @@ console.log(`[probe] spawning mcp-remote against ${mcpUrl}`);
 // cmd.exe space-splitting on Windows when npx spawns via shell:true.
 const args = [
   "-y",
-  "mcp-remote",
+  // Keep in sync with MCP_REMOTE_SPEC in src/install/claude-code.ts — the
+  // probe must spawn exactly what we write into the user's config.
+  "mcp-remote@0.15.2",
   mcpUrl,
   "--header",
   "Authorization:${ACP_MCP_AUTH}",

@@ -181,7 +181,9 @@ Both `mergeConfig` and `writeLettaMcpConfig` now route through it. Regression te
 ### R3-F11 (P1) — Node 24's `.cmd` spawn hardening makes `claudeCliOnPath()` false-negative on Windows
 `src/detect/claude-code.ts::claudeCliOnPath` calls `execFile("claude.cmd", ["--version"])` without `shell: true`. Node 24 (CVE-2024-27980 hardening) now rejects unconditional spawning of `.cmd`/`.bat` files without `shell: true` — returns EINVAL. The old code caught the EINVAL and reported `false`, meaning: *every Windows user on Node 24 who actually has Claude Code CLI installed* was silently flagged as NOT having it, and the post-install "also run `claude mcp add …`" hint was suppressed. This never caused a broken install — the Claude Desktop write path was unaffected — but it was a silent UX downgrade that would have confused any power-user running both Desktop and CLI on Node 24.
 
-**Fix (pending v0.1.8):** on `win32`, pass `shell: true` to the `execFile` call. Safe against the F7-class cmd.exe argv-splitting trap because the only arg is the literal `--version` — no whitespace, no shell metacharacters, no user input.
+**Fix (shipped v0.1.8, completed v0.1.9):** on `win32`, pass `shell: true` to the `execFile` call. Safe against the F7-class cmd.exe argv-splitting trap because the only arg is the literal `--version` — no whitespace, no shell metacharacters, no user input.
+
+**Residual bug found 2026-10-31 (fixed v0.1.9, see R33-F14):** `shell: true` alone did not fix this. The probe still named `claude.cmd` explicitly, which only exists for the npm-installed shim. The NATIVE Windows installer ships `claude.exe` with no `.cmd` at all, so the probe kept returning false for exactly the users who had installed the CLI the normal way. The command name is now plain `claude` (cmd.exe resolves `.exe`/`.cmd` via PATHEXT) and the value is exported as `claudeCliProbe()` so a regression is test-visible.
 
 **Root-cause reflection:** Node 24's `.cmd` hardening was already the underlying cause of F7 (the mcp-remote spawn that needed `shell: true` because it's a `.cmd` shim under `npx`). F7 surfaced inside the harness-spawned subprocess; F11 surfaces inside our own process. Both are different manifestations of the same Node-24-Windows trap: **any `.cmd` spawn on Windows MUST pass `shell: true`**. Added to the checklist: grep the codebase for `execFile\|spawn` on every release and confirm any `.cmd`/`.bat` invocation has `shell: true`.
 
@@ -213,3 +215,73 @@ If the stored `~/.acprompt/config.json` had an `expiresAt` in the past (MCP owne
 ---
 
 (More findings to follow as the founder completes the real interactive flow.)
+
+---
+
+## 2026-10-31 — R33 (v0.1.9): the installer's own writes were not crash-safe
+
+Four findings, all of the same shape: **the tool does something that looks
+correct and is silently wrong in a specific real-world condition.** None of them
+could be seen from a passing test suite, because no test exercised the condition.
+
+### R33-F14 (P1) — Windows CLI probe still broke native installs (see F11 above)
+`claudeCliOnPath()` probed the literal command `claude.cmd`. Only npm's global
+install creates that shim; the native Windows installer creates `claude.exe`.
+So `shell: true` (the v0.1.8 fix) removed the EINVAL crash but the probe still
+answered "not installed" for native-install users — the majority case on
+Windows. **Fix:** probe `claude` on every platform (cmd.exe resolves the
+extension through PATHEXT), exported as `claudeCliProbe()` and pinned by test.
+
+Side finding: the probe did not pass `ctx.env`, so the detector ignored the
+environment its caller handed it and always used the process env. That is why
+`detectors.test.ts` was red on any machine with the CLI installed and green in
+CI. **Fix:** `env: ctx.env` (+ `windowsHide: true` on win32 so the probe no
+longer flashes a console window).
+
+### R33-F15 (P0) — merge-writes were not atomic; a crash could delete the user's other MCP servers
+`mergeConfig()` (Claude Desktop) and `writeLettaMcpConfig()` (Letta) did
+`fs.writeFile(configPath, …)`, which truncates the target first. A crash, full
+disk, killed process, or a Windows lock in that window leaves a half-written
+`claude_desktop_config.json` — which is not "our entry is missing", it is
+**every other MCP server the user had configured is gone, and the file no
+longer parses**. The Round-3 fix (readMergeableJson) protected the read side;
+the write side was still a truncate-then-stream.
+
+**Fix:** `src/util/atomic-write.ts` — write to a sibling temp file, `fsync`,
+then `rename` over the target (atomic within a directory). Windows gets a short
+retry loop for EPERM/EBUSY/EACCES (editor / antivirus / OneDrive holding a
+handle), then a clear error that says the existing file was left untouched.
+Wired into both installers **and** `writeSecureJson()` (a torn
+`~/.acprompt/config.json` reads as "not logged in" and silently discards the
+stored identity).
+
+### R33-F16 (P2) — `npx -y mcp-remote` had no version pin
+The config we write says "download whatever mcp-remote is latest *when the user
+starts Claude Desktop*". The shape we emit depends on one specific upstream
+behavior: `${VAR}` expansion inside header values. If a future release dropped
+it, every config written by `@acprompt/join` would start sending the literal
+string `${ACP_MCP_AUTH}` and 401. **Fix:** pin `mcp-remote@0.15.2`
+(`MCP_REMOTE_SPEC` in `src/install/claude-code.ts`), with the verification note
+inline.
+
+Verified before pinning, by reading the packed tarball (not the README, which
+ships empty): 0.15.2's `substituteEnvVars()` is applied to every parsed header
+right before the transport is built, so the F7 shape still works. Anyone
+bumping the pin must re-run `scripts/probe-mcp-remote.mjs` against the real
+endpoint — that script now pins the same version so probe and product can't
+drift apart.
+
+### R33-F17 (P2) — the detector test was green in CI, red on a real machine
+See F14's side finding: `claude-code.test.ts` passed `env: { PATH: "" }`
+intending to isolate the probe, but the detector ignored it. A test that cannot
+control its own environment isn't isolating anything. **Fix:** the env is now
+honoured, and `r33-install-safety.test.ts` pins the behaviour from the other
+direction (empty PATH must yield `detected: false` on a machine that *does* have
+the CLI).
+
+**Root-cause reflection:** all four are "no feedback in the failing condition".
+A probe that fails returns `false` — indistinguishable from "not installed"; a
+non-atomic write fails *later*, at read time, in a different program; a floating
+dependency fails upstream, months later. The countermeasure is the same each
+time: make the failure mode observable (export the probed name, name the temp
+file and the retry, pin the version and record why it is safe).

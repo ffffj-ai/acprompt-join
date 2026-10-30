@@ -45,7 +45,25 @@ import pc from "picocolors";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { readMergeableJson, type HarnessInstaller } from "./shared.js";
+import { writeJsonAtomic } from "../util/atomic-write.js";
 import { claudeDesktopConfigPath } from "../detect/claude-code.js";
+
+/**
+ * Pinned mcp-remote version.
+ *
+ * R33 — `npx -y mcp-remote` resolved to "whatever is latest at install time",
+ * so an upstream release could silently change behavior months after we wrote
+ * the config (the shape below depends on a specific documented-in-code behavior:
+ * `${VAR}` expansion of header values). Pinned so the config a user gets is
+ * reproducible; bump deliberately, then re-run scripts/probe-mcp-remote.mjs
+ * against the real endpoint before shipping.
+ *
+ * Verified 2026-10-31 (R33): 0.15.2 still expands `${VAR}` in header values —
+ * dist substituteEnvVars() is applied to every parsed header before the
+ * transport is built. If a bump ever removes that, every Claude Desktop config
+ * we wrote starts 401ing with a literal "${ACP_MCP_AUTH}" header.
+ */
+export const MCP_REMOTE_SPEC = "mcp-remote@0.15.2";
 
 /**
  * Build the Claude-Desktop-compatible MCP server entry for ACPrompt. See
@@ -61,7 +79,7 @@ export function buildClaudeDesktopEntry(opts: {
     command: "npx",
     args: [
       "-y",
-      "mcp-remote",
+      MCP_REMOTE_SPEC,
       opts.mcpUrl,
       "--header",
       "Authorization:${ACP_MCP_AUTH}",
@@ -90,7 +108,9 @@ async function mergeConfig(
   const servers = (current.mcpServers ?? {}) as Record<string, unknown>;
   servers["acprompt"] = entry;
   current.mcpServers = servers;
-  await fs.writeFile(configPath, JSON.stringify(current, null, 2), "utf8");
+  // R33 — atomic: a torn write here destroys every other MCP server the
+  // user had configured. See src/util/atomic-write.ts.
+  await writeJsonAtomic(configPath, current);
 }
 
 export const claudeCodeInstaller: HarnessInstaller = async (ic) => {

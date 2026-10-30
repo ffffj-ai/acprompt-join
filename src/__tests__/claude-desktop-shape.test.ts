@@ -19,7 +19,7 @@
 // neither trap can come back.
 
 import { describe, it, expect } from "vitest";
-import { buildClaudeDesktopEntry } from "../install/claude-code.js";
+import { buildClaudeDesktopEntry, MCP_REMOTE_SPEC } from "../install/claude-code.js";
 
 describe("buildClaudeDesktopEntry (F6 + F7 regression)", () => {
   const entry = buildClaudeDesktopEntry({
@@ -37,10 +37,13 @@ describe("buildClaudeDesktopEntry (F6 + F7 regression)", () => {
     expect(Array.isArray(entry.args)).toBe(true);
   });
 
-  it("invokes `npx -y mcp-remote <url> --header <placeholder>`", () => {
+  it("invokes `npx -y mcp-remote@<pinned> <url> --header <placeholder>`", () => {
     const args = entry.args as string[];
     expect(args[0]).toBe("-y");
-    expect(args[1]).toBe("mcp-remote");
+    // R33 — pinned, not floating: `npx -y mcp-remote` would resolve to whatever
+    // upstream published most recently, so the shape below could break months
+    // after we wrote the config. See MCP_REMOTE_SPEC for the verification note.
+    expect(args[1]).toBe(MCP_REMOTE_SPEC);
     expect(args[2]).toBe("https://www.acprompt.com/api/mcp");
     expect(args[3]).toBe("--header");
     expect(args[4]).toBe("Authorization:${ACP_MCP_AUTH}");

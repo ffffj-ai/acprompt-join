@@ -54,23 +54,39 @@ async function fileExists(p: string): Promise<boolean> {
   }
 }
 
+/**
+ * The command we probe for the Claude Code CLI on every platform.
+ *
+ * R33 — Windows used to probe `claude.cmd` specifically. That only matches the
+ * npm-installed shim; the NATIVE Windows installer ships `claude.exe` (no .cmd),
+ * so the probe failed for a correctly installed CLI and `acprompt-join` told a
+ * native-install user "Claude Code CLI not on PATH". Probing the bare `claude`
+ * through the shell (see below) lets cmd.exe resolve either `claude.cmd` or
+ * `claude.exe` via PATHEXT. Exported so the regression is pinned by a test.
+ */
+export function claudeCliProbe(_platform: NodeJS.Platform): string {
+  return "claude";
+}
+
 async function claudeCliOnPath(ctx: DetectionContext): Promise<boolean> {
   // `claude --version` is the cheapest way to confirm the CLI exists.
   // Swallow every error — if it's not installed, the CLI simply isn't there.
   //
   // Windows-specific: on Node 24 (CVE-2024-27980 hardening), spawning a
   // `.cmd` file without `shell: true` is rejected unconditionally with
-  // EINVAL. The old code would catch that and report "no CLI" — a
-  // false-negative on every Windows-Node-24 install that actually HAS
-  // Claude Code CLI. We pass `shell: true` on win32 to stay compatible
-  // across Node 20/22/24. Safe against the F7-class cmd.exe argv-
-  // splitting trap because the only arg is the literal `--version`,
-  // containing no whitespace or shell metacharacters.
-  const probe = ctx.platform === "win32" ? "claude.cmd" : "claude";
+  // EINVAL. We pass `shell: true` on win32 to stay compatible across Node
+  // 20/22/24. Safe against the F7-class cmd.exe argv-splitting trap because
+  // the only arg is the literal `--version`, containing no whitespace or
+  // shell metacharacters.
+  //
+  // R33 — `env: ctx.env` is deliberate, not cosmetic: without it the probe
+  // used the PROCESS environment regardless of the context, so a caller (or a
+  // test) that supplied a controlled PATH still hit the developer's real PATH.
+  const probe = claudeCliProbe(ctx.platform);
   const opts =
     ctx.platform === "win32"
-      ? { timeout: 3000, shell: true }
-      : { timeout: 3000 };
+      ? { timeout: 3000, shell: true, env: ctx.env, windowsHide: true }
+      : { timeout: 3000, env: ctx.env };
   try {
     await execFileAsync(probe, ["--version"], opts);
     return true;
