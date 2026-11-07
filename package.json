@@ -1,6 +1,6 @@
 {
   "name": "@acprompt/join",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Smart installer for ACPrompt — one-shot MCP config for any agent harness.",
   "keywords": [
     "acprompt",

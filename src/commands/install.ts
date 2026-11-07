@@ -18,12 +18,68 @@ import {
 import { runBrowserAuth } from "../auth/browser-flow.js";
 import { getToken, maskToken } from "../auth/token-store.js";
 import { loadOrCreateIdentity } from "../identity/keypair.js";
-import { getInstaller, DEFAULT_MCP_URL } from "../install/index.js";
+import { getInstaller, DEFAULT_MCP_URL, FILE_WRITER_HARNESSES } from "../install/index.js";
 import { runVerify } from "./verify.js";
 
 export interface InstallOptions {
   /** Skip all confirm prompts, accepting defaults. Required for non-TTY. */
   yes?: boolean;
+  /**
+   * Force a specific harness id instead of taking the first detection.
+   *
+   * Needed because detection is home-scoped for desktop apps: a developer with
+   * Claude Code, Cursor and WorkBuddy all installed would otherwise always be
+   * routed to whichever sits first in ALL_DETECTORS. `ACPROMPT_HARNESS` is
+   * honoured too, mirroring `install.sh`.
+   */
+  harness?: string;
+}
+
+/** Harness ids are compared loosely: `claude_code` == `claude-code`. */
+export function normalizeHarnessId(raw: string): string {
+  return raw.trim().toLowerCase().replace(/_/g, "-");
+}
+
+export interface HarnessPick {
+  picked?: DetectionResult;
+  /** True when the caller forced a harness that detection had no evidence for. */
+  forced?: boolean;
+  error?: string;
+}
+
+/**
+ * Decide which detection `install` acts on.
+ *
+ * Default behaviour is unchanged since v0.1.7: first detected entry wins,
+ * which is why the IDE-app detectors were appended after the existing ones.
+ *
+ * With an explicit override we trust the human over the filesystem. Forcing a
+ * harness that showed no evidence is allowed (the user may have a non-standard
+ * install path) but reported as `forced` so the caller can warn. An id that
+ * isn't in the registry is a hard error — silently falling back to `generic`
+ * there would look like the override worked when it didn't.
+ *
+ * Exported for testing: `runInstall` needs network + a token, this doesn't.
+ */
+export function pickDetection(
+  detections: readonly DetectionResult[],
+  override?: string
+): HarnessPick {
+  const known = detections.map((d) => d.harness).join(", ");
+
+  if (override && override.trim().length > 0) {
+    const want = normalizeHarnessId(override);
+    const hit = detections.find((d) => normalizeHarnessId(d.harness) === want);
+    if (!hit) {
+      return { error: `Unknown harness "${override}". Known ids: ${known}.` };
+    }
+    return { picked: hit, forced: !hit.detected };
+  }
+
+  const first = detections.find((d) => d.detected);
+  return first
+    ? { picked: first, forced: false }
+    : { error: "No harness detected." };
 }
 
 /**
@@ -56,14 +112,20 @@ export async function runInstall(opts: InstallOptions = {}): Promise<void> {
 
   const ctx = currentContext();
   const detections = await Promise.all(ALL_DETECTORS.map((d) => d.detect(ctx)));
-  const best: DetectionResult | undefined = detections.find((d) => d.detected);
 
-  if (!best) {
-    // Can't happen in practice: the generic detector always matches. We
-    // still guard against it for defensive programming — a detector
-    // throwing mid-Promise.all would otherwise leave us with nothing.
-    console.log(pc.yellow("No harness detected."));
-    return;
+  const override = opts.harness ?? process.env.ACPROMPT_HARNESS;
+  const pick = pickDetection(detections, override);
+  if (!pick.picked) {
+    throw new Error(pick.error ?? "No harness detected.");
+  }
+  const best = pick.picked;
+
+  if (pick.forced) {
+    console.log(
+      pc.yellow(
+        `--harness ${best.harness}: forced despite no detection evidence (${best.reason ?? "no reason recorded"}).`
+      )
+    );
   }
   console.log(pc.green(`Detected: ${best.label}`));
   (best.evidence ?? []).forEach((e) => console.log(pc.dim(`  ${e}`)));
@@ -118,7 +180,7 @@ export async function runInstall(opts: InstallOptions = {}): Promise<void> {
   // Confirmation gates — writes always ask; snippets don't (printing is
   // read-only from the user's perspective).
   const installer = getInstaller(best.harness);
-  const isFileWriter = best.harness === "claude-code" || best.harness === "letta";
+  const isFileWriter = FILE_WRITER_HARNESSES.has(best.harness);
   if (isFileWriter) {
     const target = best.configTargets?.[0] ?? "its default config path";
     const ok = await askYesNo(

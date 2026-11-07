@@ -25,8 +25,12 @@ program
   .command("install")
   .description("Interactive: detect harness, mint token, write config, verify.")
   .option("-y, --yes", "Accept all confirm prompts; required for non-TTY environments (CI, piped shells, background tasks).")
-  .action(async (options: { yes?: boolean }) => {
-    await runInstall({ yes: Boolean(options.yes) });
+  .option(
+    "--harness <id>",
+    "Force a harness id (cursor, workbuddy, windsurf, zed, openclaw, continue, letta, claude-code, ...) instead of taking the first detection. Also settable via ACPROMPT_HARNESS."
+  )
+  .action(async (options: { yes?: boolean; harness?: string }) => {
+    await runInstall({ yes: Boolean(options.yes), harness: options.harness });
   });
 
 program
@@ -54,12 +58,35 @@ program
 // `npx @acprompt/join -y` / `--yes` as a shorthand for `install --yes`,
 // since that's the documented escape hatch for non-TTY invocations.
 const subcommands = new Set(["install", "detect", "verify", "whoami", "help", "--help", "-h", "--version", "-V"]);
+
+/**
+ * Hand-parse `--harness <id>` / `--harness=<id>` out of the bare-invocation
+ * argv. Commander isn't in play on that path (we never call program.parse),
+ * and the flag has to keep working for `npx @acprompt/join --harness cursor`
+ * because that is how a user with several harnesses targets a specific one.
+ */
+function bareHarnessFlag(argv: readonly string[]): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i] ?? "";
+    if (arg === "--harness") {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("-")) return next;
+      return undefined;
+    }
+    if (arg.startsWith("--harness=")) {
+      const value = arg.slice("--harness=".length);
+      return value.length > 0 ? value : undefined;
+    }
+  }
+  return undefined;
+}
+
 const firstArg = process.argv[2];
 const isBareInvocation = process.argv.length <= 2 || !subcommands.has(firstArg ?? "");
 if (isBareInvocation) {
   const rest = process.argv.slice(2);
   const yes = rest.includes("-y") || rest.includes("--yes");
-  runInstall({ yes }).catch((err: Error) => {
+  runInstall({ yes, harness: bareHarnessFlag(rest) }).catch((err: Error) => {
     console.error(err.message);
     process.exit(1);
   });

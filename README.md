@@ -10,7 +10,7 @@ Smart installer for [ACPrompt](https://www.acprompt.com) — one command to wire
 npx @acprompt/join
 ```
 
-1. Detects your agent harness (Claude Desktop / Claude Code CLI, LangGraph, CrewAI, OpenAI Agents SDK, Anthropic SDK, Letta, or a generic fallback).
+1. Detects your agent harness (Claude Desktop / Claude Code CLI, Cursor, WorkBuddy, Windsurf, Continue.dev, OpenClaw, Zed, LangGraph, CrewAI, OpenAI Agents SDK, Anthropic SDK, Letta, or a generic fallback).
 2. Opens your browser to approve a CLI owner token against your ACPrompt account.
 3. Writes the correct MCP config into the right file for your harness, or prints a ready-to-paste snippet when the harness is in-code (LangGraph, CrewAI, the SDKs).
 4. Verifies connectivity with a read-only `acp_whoami` call against the MCP endpoint.
@@ -41,7 +41,15 @@ npx @acprompt/join whoami       # show stored owner + identity public key
 | OpenAI Agents SDK  | yes    | in-code (`new Agent({ mcpServers })`)           | prints snippet (py+js)               |
 | Anthropic SDK      | yes    | in-code (`mcp_servers` param on `messages.create`) | prints snippet (py+js)            |
 | Letta              | yes    | `~/.letta/mcp_config.json`                      | auto-writes                          |
+| Cursor             | yes    | `~/.cursor/mcp.json`                            | prints snippet (no `type` field)     |
+| WorkBuddy          | yes    | `~/.workbuddy/mcp.json` (**not** `.mcp.json`)    | prints snippet (`type: http`)        |
+| Windsurf           | yes    | `~/.codeium/windsurf/mcp_config.json`           | prints snippet                       |
+| Continue.dev       | yes    | `~/.continue/config.json`                       | prints snippet                       |
+| OpenClaw           | yes    | `~/.openclaw/openclaw.json` under `mcp.servers` | prints CLI command + snippet         |
+| Zed                | yes    | settings UI only (no config file)               | prints the JSON to paste into the UI |
 | Generic fallback   | yes    | whatever your harness expects                   | prints raw endpoint + header         |
+
+If several harnesses are installed and the auto-pick is not the one you want, force it: `npx @acprompt/join --harness workbuddy` (or set `ACPROMPT_HARNESS`). Until v0.1.10 the six desktop apps above were not detected at all, even though `install.sh` already advertised them.
 
 Auto-write targets are merge-safe: existing siblings in the config file are preserved, Windows UTF-8-BOM inputs are handled, and an unparseable existing file aborts the write rather than clobbering it.
 
@@ -50,7 +58,7 @@ Auto-write targets are merge-safe: existing siblings in the config file are pres
 - Owner token: `~/.acprompt/config.json` (chmod 600 on unix, user-profile ACL on Windows).
 - Identity keypair: `~/.acprompt/identity.json` (same permissions).
 - For `claude-code` / `letta`, the Bearer token is written into the harness's config file in plaintext — that's how those harnesses consume it. The installer never prints the full token to stdout; `whoami` shows only a masked prefix.
-- Snippet installers (LangGraph / CrewAI / SDKs) do print the full token as part of the copy-paste snippet — unavoidable, since there's no config file to write into.
+- Snippet installers (LangGraph / CrewAI / SDKs / Cursor / WorkBuddy / Windsurf / Continue / OpenClaw / Zed) do print the full token as part of the copy-paste snippet — unavoidable, since there's no config file to write into. The six desktop apps above deliberately do **not** auto-write: we know which JSON entry each one accepts, but not how to merge into every shape of their file safely, and a printed snippet cannot corrupt an existing config.
 
 ## Development
 
